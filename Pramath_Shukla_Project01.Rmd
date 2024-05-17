@@ -1,0 +1,250 @@
+---
+title: "Project01"
+author: "Pramath Shukla"
+date: "2024-02-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+```{r includeAllLibrary}
+suppressPackageStartupMessages({
+  library(caret)
+  library(plotly)
+  library(pROC)
+  library(ggplot2)
+})
+```
+
+## Dataset
+The dataset used for this project is Differentiated Thyroid Cancer Recurrence. 
+There are 16 clinicopathologic features/variables are used to predict recurrence of thyroid cancer. 
+The target variable is classified into two types "yes" or "no" depending on whether there was recurrence of cancer. If there was cancer recurrence, then the output is yes, otherwise no. 
+
+## Problem 
+Based on the dataset, how can we predict the recurrence of cancer which is dependent on the set of features designed in the dataset? How well these features and data analysis techniques be used to make such a model and further make it more accurate? 
+
+## Data set up
+```{r head, include=TRUE}
+dataset <- read.csv("Thyroid_Diff.csv")
+sum(is.na(dataset))
+```
+The above code loads the Thyroid_Diff data into dataset variable. It checks if there are any missing values in the dataset and as the data was already processed, the final dataset doesn't contains any missing values. 
+
+
+## Splitting Data 
+```{r splitData, include=TRUE}
+
+#Let's first visualize the structure of the dataset
+str(dataset)
+
+set.seed(123)
+
+dataset$Age <- as.integer(dataset$Age)
+dataset$Gender <- as.factor(dataset$Gender)
+dataset$Smoking <- as.factor(dataset$Smoking)
+dataset$Hx.Smoking <- as.factor(dataset$Hx.Smoking)
+dataset$Hx.Radiothreapy <- as.factor(dataset$Hx.Radiothreapy)
+dataset$Thyroid.Function <- as.factor(dataset$Thyroid.Function)
+dataset$Physical.Examination <- as.factor(dataset$Physical.Examination)
+dataset$Adenopathy <- as.factor(dataset$Adenopathy)
+dataset$Pathology <- as.factor(dataset$Pathology)
+dataset$Focality <- as.factor(dataset$Focality)
+dataset$Risk <- as.factor(dataset$Risk)
+dataset$T <- as.factor(dataset$T)
+dataset$N <- as.factor(dataset$N)
+dataset$M <- as.factor(dataset$M)
+dataset$Stage <- as.factor(dataset$Stage)
+dataset$Response <- as.factor(dataset$Response)
+dataset$Recurred <- as.factor(dataset$Recurred)
+
+spec = c(trainData = .6, testData = .2, cvData = .2)
+
+g = sample(cut(
+  seq(nrow(dataset)), 
+  nrow(dataset)*cumsum(c(0,spec)),
+  labels = names(spec)
+))
+
+res = split(dataset, g)
+trainData <- res$trainData
+testData <- res$testData
+cvData <- res$cvData
+```
+First, we can see the structure of the data set, with 17 variables, out of which 16 are independent variables and "Recurred" is the output or the target variable. 
+Then I have sorted the variables as numerical and categorical. Moreover, the categorical variables are factored accordingly with different levels as per the number of categories present in the variable. 
+The data is splitted into three sets which are training, cross validation and testing sets. The training data is 60%, cross-validation data is 20% and the remaining 20% is testing data. The data will be first trained and then will be cross-validated to evaluate the model and to make adjustments such that it does not overfits and neither underfits. Moreover, only after building proper model, it is then tested on the testing set.
+
+# Checking the data consistency
+```{r checkData, include=TRUE}
+# check if both the genders have cancer recurrence
+xtabs(~ Recurred + Gender, data = dataset)
+
+# check for other variables with respect to Recurrence
+xtabs(~ Recurred + Hx.Radiothreapy, data = dataset)
+
+xtabs(~ Recurred + Thyroid.Function, data = dataset)
+
+xtabs(~ Recurred + Physical.Examination, data = dataset)
+
+xtabs(~ Recurred + Adenopathy, data = dataset)
+
+xtabs(~ Recurred + Stage, data = dataset)
+
+```
+Here, I have checked if the data of recurrence is consistent across different parameters such as Gender, Thyroid.Function and so on. Moreover, except Gender, I have only presented the data which seemed to be quite inconsistent like Hx.Radiothreapy parameter has a lot of inconsistency. It seems like that parameter is not of much importance because it makes little difference to the Recurrence. However, we will look more closely into many of the variables by visualizing them later. 
+
+# Building and plotting the training model 
+```{r logisticModel, include=TRUE, warning=FALSE}
+
+# fitting the logistic regression model
+logistic_model <- glm(Recurred ~ Gender+Age+Smoking+Thyroid.Function+Focality+N+Response+Stage+Hx.Radiothreapy, trainData, family = "binomial", maxit = 1000)
+
+predicted.data <- data.frame(
+  probability.of.Recur=logistic_model$fitted.values,
+  recur = trainData$Recurred
+)
+
+predicted.data <- predicted.data[
+  order(predicted.data$probability.of.Recur, decreasing=FALSE),]
+predicted.data$rank <- 1:nrow(predicted.data)
+
+ggplot(data=predicted.data, aes(x=rank, y=probability.of.Recur))+
+  geom_point(aes(color=recur), alpha=1, shape=4, stroke=2)+
+  xlab("Index")+
+  ylab("Predicted probability of recurrence")
+
+
+cv_prediction <- predict(logistic_model, cvData, type = "response")
+cv_prediction <- ifelse(cv_prediction> 0.5,1,0)
+
+```
+Here, I have built a logistic model with glm function with almost all the parameters. Then the model is plotted using ggplot to see how well it fits the training data. The observations of the data has been sequentially ordered with lower probabilities having lower rank and thus, lower chances of getting recurrence while, the higher probabilities have higher rank and thus, higher chances of getting cancer recurrence. 
+It seems that model is doing well so far. It forms a good logistic plot, where it has managed to get most of the cases correctly. Thus, we can go ahead with checking how well it does on the cross-validation data set using roc plot. 
+
+```{r plotTrain, include=TRUE}
+
+# Create ROC curve
+roc_cv <- roc(cvData$Recurred, cv_prediction)
+
+# Plot ROC curve for training data
+plot(roc_cv, col = "blue", main = "ROC Curve - Training Data", col.main = "darkred", lwd = 2)
+
+# Calculate the AUC
+auc_value <- auc(roc_cv)
+cat("AUC:", auc_value, "\n")
+```
+The above roc plot tells us how well our model is doing with the training data. Well, it turns it did great!
+The plot is well towards the upper-left corner with high Sensitivity(True positive rates) and low Specificity.
+Moreover, we can further evaluate the model performace through AUC, which is the area under the ROC curve and summarizes the performance of the classifier. Where, the AUC value of the model is 0.9107! (On scale of, where 1.0 is a perfect model).
+These are pretty great statistics, we now see how we can further enhance the prediction of the model through data wrangling and visualization. 
+
+\vspace{10pt}
+
+## Evaluating the model
+```{r summary, include=TRUE}
+
+# Model summary
+summary(logistic_model)
+```
+
+```{r genderplot, echo=FALSE}
+# Create a data frame
+dfGender <- data.frame(dataset$Recurred, dataset$Gender)
+
+# Create a clustered bar chart
+plot1 <- barplot(table(dfGender), beside = TRUE, legend.text = TRUE, col = c("lightblue", "lightgreen"), main = "Clustered Bar Chart of Gender")
+```
+
+
+```{r stageplot, echo=FALSE}
+dfStage <- data.frame(dataset$Recurred, dataset$Stage)
+# Create a clustered bar chart
+plot2 <- barplot(table(dfStage), beside = TRUE, legend.text = TRUE, col = c("lightblue", "lightgreen"), main = "Clustered Bar Chart of Stage")
+```
+
+The above bar chart displays the association between the "Stage" variable and the "Recurred" output variable. The variable doesn't provides a strong relation with respect to recurrence. Especially, in the first stage, most of the cases have no recurrence and it has little co-relation in higher stages. Therefore, it seems to be better to get rid of the variable from the model. 
+
+```{r Radioplot, echo=FALSE}
+dfRadio <- data.frame(dataset$Recurred, dataset$Hx.Radiothreapy)
+# Create a clustered bar chart
+plot3 <- barplot(table(dfRadio), beside = TRUE, legend.text = TRUE, col = c("lightblue", "lightgreen"), main = "Clustered Bar Chart of Hx.Radiothreapy")
+```
+The Hx.Radiothreapy is very inconsistent. It is because, there are VERY less cases in which the threapy was done as it is apparent from the plot. Moreover, including this variable can lead to inconsistencies when applied on unseen data. 
+
+```{r Tplot, echo=FALSE}
+dfT <- data.frame(dataset$Recurred, dataset$T)
+# Create a clustered bar chart
+plot4 <- barplot(table(dfT), beside = TRUE, legend.text = TRUE, col = c("lightblue", "lightgreen"), main = "Clustered Bar Chart of T")
+```
+The T variable that was not included earlier, seems to be giving good co-relation with the output variable of Recurred. Therefore, it would be a better option to include the variable during model training. 
+
+
+# Improving the Model
+```{r improvedModel, include=TRUE, warning=FALSE}
+
+# fitting the logistic regression when considering all the predictors
+model <- glm(Recurred ~ Gender+Age+Smoking+Thyroid.Function+Focality+N+T+Response, trainData, family = "binomial", maxit = 1000)
+
+cv_prediction1 <- predict(model, cvData, type = "response")
+cv_prediction1 <- ifelse(cv_prediction1> 0.5,1,0)
+
+# Create ROC curve
+roc_cv1 <- roc(cvData$Recurred, cv_prediction1)
+
+# Plot ROC curve for training data
+plot(roc_cv1, col = "blue", main = "ROC Curve - Cross Validation Data", col.main = "darkred", lwd = 2)
+
+# Calculate the AUC
+auc_value1 <- auc(roc_cv1)
+cat("AUC:", auc_value1, "\n")
+```
+The performance of the model has improved since the last time. The roc value increased from 0.9107 to 0.9192. Thus, it signals that we are ready to test it on our final test dataset. Let's see how it performs. 
+
+##  Testing the model
+\vspace{10pt}
+
+```{r testModel, echo=FALSE}
+
+testPred <- predict(model, testData[-17], type = "response")
+
+predicted.data <- data.frame(
+  probability.of.Recur=testPred,
+  recur = testData$Recurred
+)
+
+predicted.data <- predicted.data[
+  order(predicted.data$probability.of.Recur, decreasing=FALSE),]
+predicted.data$rank <- 1:nrow(predicted.data)
+
+ggplot(data=predicted.data, aes(x=rank, y=probability.of.Recur))+
+  geom_point(aes(color=recur), alpha=1, shape=4, stroke=2)+
+  xlab("Index")+
+  ylab("Predicted probability of recurrence")
+
+testPred <- ifelse(testPred> 0.5,1,0)
+
+# Create ROC curve
+roc_test <- roc(testData$Recurred, testPred)
+
+# Plot ROC curve for training data
+plot(roc_test, col = "blue", main = "ROC Curve - Testing Data", col.main = "darkred", lwd = 2)
+
+# Calculate the AUC
+auc_value_test <- auc(roc_test)
+cat("AUC:", auc_value_test, "\n")
+
+```
+0.9412! That's seem to be great with the data that it has not seen before. Moreover, the output column was removed from the testing data so that the model has no means to know the values of the target data in the testing data set. 
+
+## Conclusion
+With rigorous model training using training and cross validation data, as well as data wrangling and visualization techniques, we were able to come up with model that was able to estimate cancer recurrence in patients with high probability and precision. 
+
+## Data Citation
+JOAKIM ARVIDSSON. ([2024; 01]). "Differentiated Thyroid Cancer Recurrence", Version 1. Retrieved 02/05/2024 from https://www.kaggle.com/datasets/joebeachcapital/differentiated-thyroid-cancer-recurrence.
+
+
+
